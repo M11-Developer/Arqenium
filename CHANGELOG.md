@@ -8,9 +8,10 @@ All notable changes to ARQENIUM are documented here. The format follows [Keep a 
 
 - **Windows support, end to end.** `src/core/paths.ts` provides case-folding, separator-aware path containment (`C:\work\proj` vs `c:\WORK\PROJ` vs `C:\work\proj-evil`), used by project file access, the static server and EchoShell's working directory. Executables are resolved through `PATH` × `PATHEXT`, spawned tools are hidden from the console, git porcelain output handles CRLF, and the app data directory follows `%APPDATA%`. `npm run dev:desktop` works identically in cmd, PowerShell and POSIX shells.
 - **Windows packaging.** `electron-builder` configuration with NSIS and portable targets, and a [`Windows`](.github/workflows/windows.yml) CI workflow that verifies, smoke-tests and builds installers on `windows-latest`.
-- **Hosted preview.** `public/preview-bridge.js` supplies a labelled, read-only in-browser dataset so the Vercel deployment is explorable; it installs only when no real core answers `/api/info`. Every mutating channel answers with an explicit "read-only" error instead of pretending to succeed.
+- **Hosted preview.** `src/preview/bridge.ts` supplies a labelled, read-only sample dataset so the Vercel deployment is explorable; it installs only when no real core answers `/api/info`, and every mutating channel answers with an explicit `preview_read_only` error instead of pretending to succeed. The dataset (`src/preview/dataset.ts`) is captured from the real core in demo mode by `scripts/capture-preview-dataset.mjs`, with a real index and a real executed demo run.
 - **Server demo mode.** `ARQ_DEMO_MODE=1` runs the real core on an in-memory database with a seeded, genuinely indexed sample project.
 - **Platform test suite.** `tests/09-platform-windows.test.ts` covers containment edge cases, executable resolution, a real temporary project and the per-platform data directory.
+- **Preview test suite.** `tests/10-hosted-preview.test.ts` renders the built SPA in jsdom with no backend, walks all eleven destinations and asserts the dataset shapes and the refusals.
 
 ### Changed
 

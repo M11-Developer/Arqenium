@@ -64,7 +64,8 @@ ARQENIUM has one core and two thin front-ends.
 | Runtime | Entrypoint | Transport | Used for |
 | --- | --- | --- | --- |
 | **Electron desktop** | `src/electron/main.ts` | `ipcRenderer.invoke` over a fixed channel allow-list | The product |
-| **Web / headless** | `src/server/main.ts` → `src/server/http.ts` | `POST /api/invoke` + `GET /api/events` (SSE) | Development, CI, previews, restricted networks |
+| **Web / headless** | `src/server/main.ts` → `src/server/http.ts` | `POST /api/invoke` + `GET /api/events` (SSE) | Development, CI, restricted networks |
+| **Hosted interface preview** | `src/preview/bridge.ts` (bundled with the renderer) | In-process: no network at all | The Vercel deployment — read-only sample data |
 
 Both runtimes construct the **same** `Core` and the **same** `Dispatcher`, so behaviour — validation, module gating, errors — is identical. Only the transport differs. That is deliberate: it means a bug found in one is a bug in both, and a test written against the HTTP API covers the desktop path too.
 
@@ -77,7 +78,39 @@ npm run build
 ARQ_API_PORT=4400 ARQ_STATIC_DIR=dist/renderer node dist/server/main.js
 ```
 
-With `ARQ_STATIC_DIR`, the same process serves the renderer with an SPA fallback, confined to that directory (`path.resolve` + prefix check, so `../` cannot escape). The Electron path is built and typechecked by every `npm run build` even where the Electron binary cannot be downloaded.
+With `ARQ_STATIC_DIR`, the same process serves the renderer with an SPA fallback, confined to that directory by `isInside` (see [Cross-platform behaviour](#cross-platform-behaviour)), so `../` cannot escape. The Electron path is built and typechecked by every `npm run build` even where the Electron binary cannot be downloaded.
+
+### The hosted preview (and what it is not)
+
+A static host cannot run the core: it needs a writable database, long-lived SSE connections and native modules. Rather than pretend, the Vercel deployment ships a **labelled, read-only interface preview**:
+
+```
+index.html ──> preview-bridge.js ──(installs only if /api/info is not JSON)──> window.arqenium
+                                                                                    │
+dist/renderer/assets/*.js ──> lib/bridge.ts ──> window.arqenium.invoke ─────────────┘
+                                                (calls the real API when present)
+```
+
+- `src/preview/dataset.ts` is **captured** from the real core in demo mode by `scripts/capture-preview-dataset.mjs` — a genuinely indexed project, a genuinely executed demo run, the real suite definitions. Nothing is invented.
+- Every mutating channel has an explicit refusal in `src/preview/bridge.ts` (`preview_read_only`), so no button silently lies.
+- The bridge probes `GET /api/info` and only installs when the response is not JSON. `npm run dev`, `npm run serve` and Electron therefore always talk to the real core.
+- `tests/10-hosted-preview.test.ts` renders the built SPA in jsdom with no backend and walks all eleven destinations, so this path is covered by CI.
+
+## Cross-platform behaviour
+
+Windows is a first-class target, not an afterthought. The rules are centralised so they cannot drift:
+
+| Concern | Where | Rule |
+| --- | --- | --- |
+| Path containment | `src/core/paths.ts` | Case-folded on Windows and macOS, separator-aware, `path.resolve`d on both sides. `C:\work\proj` contains `c:\WORK\PROJ\src`, never `C:\work\proj-evil` |
+| Executables | `resolveExecutable` in `src/core/terminal/service.ts` | `PATH` × `PATHEXT` lookup (`.exe`, `.cmd`, `.bat`, `.com`) so `npm`/`npx` spawn without a shell; absolute paths pass through |
+| Child processes | every `execFile`/`spawn` | `shell: false` plus `windowsHide: true` — no console windows, no shell quoting |
+| Line endings | git porcelain, file reads, diffs | split on `/\r?\n/` |
+| Data directory | `resolveDataDir` in `src/core/core.ts` | `%APPDATA%\Arqenium` on Windows, `~/Library/Application Support/Arqenium` on macOS, `$XDG_DATA_HOME` otherwise |
+| Shutdown | `scripts/dev.mjs` | `taskkill /T /F` on Windows so Vite/Electron are not orphaned |
+| Packaging | `package.json` → `build` | NSIS installer + portable `.exe`, `asarUnpack` for `.node` binaries |
+
+`tests/09-platform-windows.test.ts` asserts the platform-conditional parts of this, and `.github/workflows/windows.yml` runs the whole suite, the built-API smoke test and an installer build on `windows-latest`.
 
 ## The request path
 
@@ -346,7 +379,7 @@ Deleting `$ARQ_DATA_DIR` resets the application completely; nothing is written o
 | --- | --- |
 | Renderer → core | Single dispatcher, zod-parsed, channel allow-list; Electron `contextIsolation` + preload with an explicit channel set |
 | Browser → API | Loopback bind by default; strict origin allow-list (`origin_forbidden`, 403); same-host allowed |
-| Paths | Project root confinement via `path.resolve` + prefix check on every read/write/serve; `../` cannot escape |
+| Paths | Project root confinement via `isInside` (case-folded, separator-aware) on every read/write/serve; `../` and sibling-prefix tricks cannot escape |
 | Body size | 4 MB cap with socket draining, answered `413` rather than a reset |
 | Credentials | AES-256-GCM with a 0600 key file; listings expose masked hints only; values decrypted only at call time |
 | Prompts | Secrets filtered from process env (`filterEnv`), context treated as data, demo output labelled |
@@ -371,17 +404,20 @@ Full disclosure process: [SECURITY.md](../SECURITY.md).
 | `method_not_allowed` | 405 | `/api/invoke` requires POST |
 | `conflict` / `approval_required` | 409 | Concurrent state change or a pending approval |
 | `payload_too_large` | 413 | Body over 4 MB |
+| `preview_read_only` | — | Client-side only: the hosted preview refusing a mutation |
 | `request_failed` | 500 | Domain error; the message is passed through |
 
 ## Build & packaging
 
 `scripts/build.mjs` runs esbuild for the Node-side entrypoints (server, Electron main, preload) with native modules externalised and a CJS-safe banner (`__filename`/`__dirname` shims so ESM output does not crash), then Vite for the renderer into `dist/renderer`. `scripts/dev.mjs` runs the API under tsx watch plus Vite with `/api` proxied, and optionally launches Electron when `RUN_ELECTRON=1` and the binary exists.
 
-`electron-builder` config produces `pack:dir` (unpacked) and `dist` (installers). Both need the Electron runtime binary to be downloadable in your environment; where it is not, the web runtime is the supported path and exercises the identical core.
+A fourth step bundles `src/preview/bridge.ts` into `dist/renderer/preview-bridge.js` as a standalone IIFE, and the `?url` marker in `index.html` keeps Vite from trying to inline a classic script.
+
+`electron-builder` config produces `pack:dir` (unpacked) and `dist` (installers) for Windows (NSIS + portable), macOS (dmg) and Linux (AppImage). Both need the Electron runtime binary to be downloadable in your environment; where it is not, the web runtime is the supported path and exercises the identical core. The Windows installers are built on a real Windows runner by `.github/workflows/windows.yml`, because cross-building a native module from Linux is not something to trust.
 
 ## Testing strategy
 
-Nine suites, 100 tests, vitest, no browser required:
+Eleven suites, 118 tests, vitest, no browser required (the preview suite uses jsdom):
 
 | Suite | Focus |
 | --- | --- |
@@ -393,6 +429,8 @@ Nine suites, 100 tests, vitest, no browser required:
 | `06-traces-and-evals` | Event persistence, filters, redaction, suites, exports |
 | `07-modules-terminal-rebuild` | Module gating, argv safety, blocklist, rebuild facts |
 | `08-api-and-validation` | HTTP contract, statuses, origins, body cap, error codes |
+| `09-platform-windows` | Path containment edge cases, `PATHEXT` resolution, a real temp project, per-platform data directory |
+| `10-hosted-preview` | Built SPA rendered in jsdom with no backend, all eleven routes, refusals, dataset shapes |
 
 The tests drive the same `Core` and `Dispatcher` the app uses — there is no mock core.
 

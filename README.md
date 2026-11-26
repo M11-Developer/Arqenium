@@ -40,7 +40,7 @@ No account. No sign-up. No telemetry.
 | 4. Run built app | `npm run serve` | Single process serving UI + API on **4319** |
 | 5. Desktop dev | `npm run dev:desktop` | Vite + API + Electron shell, same command on every OS |
 | 6. Package | `npm run dist` | Installers in `release/` (NSIS + portable on Windows) |
-| 7. Verify | `npm test` | 110 tests across 10 suites |
+| 7. Verify | `npm test` | 118 tests across 11 suites |
 
 Run the built server on another port with `ARQ_API_PORT=4400 ARQ_STATIC_DIR=dist/renderer node dist/server/main.js` (PowerShell: `$env:ARQ_API_PORT='4400'`).
 
@@ -197,6 +197,7 @@ Documentation imagery is generated deterministically from the design tokens in `
 - **Demo output is labelled.** With no provider configured, runs execute against the deterministic demo adapter and say so in the UI and in TraceX. Those strings are samples, not model output.
 - **Python parsing is structural.** The TypeScript adapter uses the real compiler API; the Python adapter extracts definitions and imports with a syntax-aware scanner and reports `parseQuality` honestly.
 - **EchoShell is not a shell.** Argument vectors only. That is a deliberate safety property, not a missing feature.
+- **The hosted preview is a preview.** The Vercel deployment serves the real renderer over a captured sample dataset and refuses every mutation. Indexing, models, MCP, EchoShell and approvals only run in the desktop app.
 - **Electron packaging needs the runtime binary.** `npm run pack:dir` / `npm run dist` are configured but require `electron` to be downloadable; the Windows workflow builds the installers on a real Windows runner.
 
 ## Hosted preview
