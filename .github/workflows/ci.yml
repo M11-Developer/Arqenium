@@ -17,6 +17,9 @@ jobs:
   verify:
     name: Verify (Node ${{ matrix.node }})
     runs-on: ubuntu-24.04
+    # The Vercel git integration runs `npm install` in this workflow's repo; a
+    # cancelled push must not leave a half-installed node_modules behind.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

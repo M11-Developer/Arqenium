@@ -18,7 +18,22 @@ import process from 'node:process';
 
 const root = process.cwd();
 const apiPort = process.env.ARQ_API_PORT ?? '4319';
+// Bind loopback by default. Set ARQ_DEV_HOST=0.0.0.0 to expose the dev servers
+// on the LAN (or in a container/sandbox that proxies from another host).
+const devHost = process.env.ARQ_DEV_HOST ?? '127.0.0.1';
 const wantElectron = process.env.RUN_ELECTRON === '1';
+
+/** Windows ships the Electron binary as electron.exe, not `electron`. */
+function electronBinary() {
+  const base = path.join(root, 'node_modules/electron/dist');
+  const candidates =
+    process.platform === 'win32' ? ['electron.exe'] : ['Electron.app/Contents/MacOS/Electron', 'electron'];
+  for (const rel of candidates) {
+    const full = path.join(base, rel);
+    if (existsSync(full)) return full;
+  }
+  return null;
+}
 
 const children = [];
 let shuttingDown = false;
@@ -46,9 +61,20 @@ function shutdown(code) {
   if (shuttingDown) return;
   shuttingDown = true;
   for (const { child } of children) {
-    if (!child.killed) child.kill('SIGTERM');
+    if (child.killed) continue;
+    if (process.platform === 'win32') {
+      // Windows has no SIGTERM for a detached child; taskkill /T also takes the
+      // grandchildren (tsx -> node) so ports are actually released.
+      try {
+        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      } catch {
+        child.kill();
+      }
+    } else {
+      child.kill('SIGTERM');
+    }
   }
-  setTimeout(() => process.exit(code), 400);
+  setTimeout(() => process.exit(code), process.platform === 'win32' ? 900 : 400);
 }
 
 process.on('SIGINT', () => shutdown(0));
@@ -62,15 +88,15 @@ run('api', process.execPath, [path.join(root, 'node_modules/tsx/dist/cli.mjs'), 
 
 await new Promise((r) => setTimeout(r, 1200));
 
-run('vite', process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--host', '0.0.0.0', '--port', '5173'], {
-  ARQ_DEV_SERVER_URL: 'http://127.0.0.1:5173',
+run('vite', process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--host', devHost, '--port', '5173'], {
+  ARQ_DEV_SERVER_URL: `http://${devHost === '0.0.0.0' ? '127.0.0.1' : devHost}:5173`,
 });
 
 if (wantElectron) {
-  const electronBinary = path.join(root, 'node_modules/electron/dist/electron');
-  if (existsSync(electronBinary)) {
+  const electronPath = electronBinary();
+  if (electronPath) {
     await new Promise((r) => setTimeout(r, 2500));
-    run('electron', electronBinary, [path.join(root, 'dist/electron/main.js')], {
+    run('electron', electronPath, [path.join(root, 'dist/electron/main.js')], {
       ARQ_DEV_SERVER_URL: 'http://127.0.0.1:5173',
       NODE_ENV: 'development',
     });
@@ -87,4 +113,5 @@ console.log('');
 console.log('  ARQENIUM development runtime');
 console.log(`  Web UI        http://localhost:5173`);
 console.log(`  Local API     http://127.0.0.1:${apiPort}`);
+if (devHost === '0.0.0.0') console.log('  Bound to      0.0.0.0 (LAN / sandbox preview)');
 console.log('');

@@ -1,21 +1,44 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createCore, resolveDataDir } from '../core/core';
 import { createApiServer, defaultStaticDir } from './http';
+import { seedDemoProject } from './seed';
 
 /**
  * Standalone API / web runtime entrypoint.
  *
- *   npm run start:api
+ *   npm run start:api          # local development
+ *   npm run serve              # built server, serves dist/renderer too
  *
  * Serves the validated JSON API, the SSE event stream and - when a production
  * renderer build exists in dist/renderer - the application itself.
+ *
+ * `ARQ_DEMO_MODE=1` starts a read-only hosted preview: in-memory database, a
+ * seeded sample project and every module enabled. No native modules, no writes
+ * to the home directory. That is what the Vercel deployment runs.
  */
 async function main(): Promise<void> {
   const port = Number(process.env.ARQ_API_PORT ?? 4319);
   const host = process.env.ARQ_API_HOST ?? '127.0.0.1';
-  const dataDir = resolveDataDir();
+  const demoMode = process.env.ARQ_DEMO_MODE === '1';
 
-  console.log(`[arqenium] data directory: ${dataDir}`);
-  const core = createCore({ dataDir });
+  let dataDir: string;
+  if (demoMode) {
+    // A serverless host may expose a read-only filesystem; fall back to a temp
+    // directory if the app-data location cannot be created.
+    try {
+      dataDir = resolveDataDir();
+      fs.mkdirSync(dataDir, { recursive: true });
+    } catch {
+      dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arqenium-data-'));
+    }
+  } else {
+    dataDir = resolveDataDir();
+  }
+
+  console.log(`[arqenium] data directory: ${dataDir}${demoMode ? ' (demo mode)' : ''}`);
+  const core = createCore({ dataDir, inMemory: demoMode });
   // The demo provider is seeded by the registry; resolving it here fails fast
   // if the seed ever regresses.
   void core.providers.demoProvider().id;
@@ -38,9 +61,25 @@ async function main(): Promise<void> {
   core.events.emit({
     type: 'app.started',
     message: `ARQENIUM API started on port ${port}`,
-    data: { runtime: 'web', staticDir: staticDir ?? null },
+    data: { runtime: 'web', staticDir: staticDir ?? null, demoMode },
     source: 'app',
   });
+
+  if (demoMode) {
+    void seedDemoProject(core).then((seed) => {
+      console.log(
+        `[arqenium] demo project ${seed.projectId ?? 'not seeded'} at ${seed.rootPath || '(no writable temp dir)'}`,
+      );
+      if (seed.projectId) {
+        core.events.emit({
+          type: 'app.demo.seeded',
+          message: 'Hosted preview seeded with a sample project',
+          data: { projectId: seed.projectId, skipped: seed.skipped },
+          source: 'app',
+        });
+      }
+    });
+  }
 
   const shutdown = async (signal: string) => {
     console.log(`[arqenium] ${signal} received, shutting down`);

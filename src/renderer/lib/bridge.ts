@@ -27,11 +27,13 @@ export class RequestError extends Error {
   }
 }
 
-interface ElectronBridge {
-  runtime: 'electron';
+export interface ElectronBridge {
+  runtime: string;
+  /** Present only on the hosted preview: sample data, read-only. */
+  preview?: boolean;
   invoke<T>(channel: string, input?: unknown): Promise<{ ok: true; result: T } | { ok: false; error: { code: string; message: string; details?: unknown } }>;
   pickDirectory(): Promise<string | null>;
-  pickFile(filters?: Array<{ name: string; extensions: string[] }>): Promise<string | null>;
+  pickFile?(filters?: Array<{ name: string; extensions: string[] }>): Promise<string | null>;
   openExternal(url: string): Promise<boolean>;
   onEvent(listener: (event: unknown) => void): () => void;
 }
@@ -78,7 +80,7 @@ export async function pickDirectory(): Promise<string | null> {
 }
 
 export async function pickFile(filters?: Array<{ name: string; extensions: string[] }>): Promise<string | null> {
-  if (window.arqenium) return window.arqenium.pickFile(filters);
+  if (window.arqenium?.pickFile) return window.arqenium.pickFile(filters);
   return null;
 }
 

@@ -8,6 +8,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 import type { Db } from '../db/database';
 import type { EventBus } from '../events/bus';
 import type { ModuleService } from '../modules';
+import { isInside } from '../paths';
 import { IgnoreMatcher, isBinaryExt, DEFAULT_IGNORE_PATTERNS } from './ignore';
 import type { LanguageRegistry } from './lang/registry';
 import type { FileParseResult } from './lang/types';
@@ -207,12 +208,14 @@ export class ProjectService {
     const rel = relPath.replace(/\\/g, '/').replace(/^\.\//, '');
     if (path.isAbsolute(rel)) throw new Error('Absolute paths are not allowed');
     const abs = path.resolve(rootReal, rel);
-    if (abs !== rootReal && !abs.startsWith(rootReal + path.sep)) {
+    // Case-aware, separator-aware containment: Windows and macOS resolve
+    // `SRC/Lib/Router.ts` and `src/lib/router.ts` to the same file.
+    if (!isInside(rootReal, abs)) {
       throw new Error('Path escapes the project root');
     }
     if (fs.existsSync(abs)) {
       const real = fs.realpathSync(abs);
-      if (real !== rootReal && !real.startsWith(rootReal + path.sep)) {
+      if (!isInside(rootReal, real)) {
         throw new Error('Symlink escapes the project root');
       }
     }
@@ -896,8 +899,16 @@ export class ProjectService {
     }
     try {
       const [branchRes, statusRes] = await Promise.all([
-        execFileP('git', ['-C', project.rootPath, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 }).catch(() => null),
-        execFileP('git', ['-C', project.rootPath, 'status', '--porcelain=v1', '-uall'], { timeout: 8000 }).catch(() => null),
+        // `windowsHide` matters on Windows: without it every git probe flashes a
+        // console window, which makes the Watcher feel broken.
+        execFileP('git', ['-C', project.rootPath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+          timeout: 5000,
+          windowsHide: true,
+        }).catch(() => null),
+        execFileP('git', ['-C', project.rootPath, 'status', '--porcelain=v1', '-uall'], {
+          timeout: 8000,
+          windowsHide: true,
+        }).catch(() => null),
       ]);
       const changes: GitChange[] = [];
       if (statusRes) {
@@ -920,10 +931,12 @@ export class ProjectService {
       const res = execFileSync(
         'git',
         ['-C', project.rootPath, 'status', '--porcelain=v1', '-uall'],
-        { timeout: 8000, encoding: 'utf8' },
+        { timeout: 8000, encoding: 'utf8', windowsHide: true },
       ) as string;
       const changes: GitChange[] = [];
-      for (const line of res.split('\n')) {
+      // Git on Windows emits CRLF; strip the trailing \r so paths stored in the
+      // database stay identical to the paths the indexer produces.
+      for (const line of res.split(/\r?\n/)) {
         if (!line.trim()) continue;
         const code = line.slice(0, 2);
         changes.push({ path: line.slice(3).trim(), status: code.trim(), staged: code[0] !== ' ' && code[0] !== '?' });

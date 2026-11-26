@@ -10,6 +10,15 @@
     />
     <title>ARQENIUM</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!--
+      Hosted preview only. On a host that cannot run the Node core (the Vercel
+      deployment) this installs an in-browser, read-only sample dataset so the
+      interface is explorable. It no-ops when /api/info answers with JSON, so
+      `npm run dev`, `npm run serve` and the Electron desktop app always use the
+      real core. The URL is marked so Vite keeps it a separate file instead of
+      inlining it into the module graph.
+    -->
+    <script src="./preview-bridge.js?url"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -125,10 +125,13 @@ let pythonBin: string | null | undefined;
 
 export async function detectPythonBin(): Promise<string | null> {
   if (pythonBin !== undefined) return pythonBin;
-  const candidates = process.platform === 'win32' ? ['python', 'py'] : ['python3', 'python'];
+  // On Windows the launcher is `py` (or `python` from the Store); everywhere
+  // else `python3` first, then `python`. `windowsHide` keeps the console window
+  // from flashing on every probe and every batch parse.
+  const candidates = process.platform === 'win32' ? ['python', 'py', 'python3'] : ['python3', 'python'];
   for (const bin of candidates) {
     try {
-      await execFileP(bin, ['--version'], { timeout: 5000 });
+      await execFileP(bin, ['--version'], { timeout: 5000, windowsHide: true });
       pythonBin = bin;
       return pythonBin;
     } catch {
