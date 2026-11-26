@@ -1,0 +1,7 @@
+{
+  "name": "fixture-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Synthetic fixture repository used by the ARQENIUM test suite. Not derived from any real project.",
+  "main": "src/index.ts"
+}

@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+out/
+*.tsbuildinfo
+
+# Local data and environment
+.arqenium-data/
+# The test fixture deliberately contains a fake .env and a node_modules folder
+# so exclusion rules can be asserted; both are dummies, not secrets.
+.env
+.env.local
+!tests/fixtures/fixture-app/.env
+!tests/fixtures/fixture-app/node_modules/
+!tests/fixtures/fixture-app/node_modules/**
+*.local
+
+# Test / tooling artifacts
+coverage/
+*.log
+npm-debug.log*
+.vitest/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Electron packaging
+*.asar
+*.blockmap
