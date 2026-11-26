@@ -30,7 +30,7 @@ export interface AppInfoPayload {
   telemetryEnabled: false;
 }
 
-export const VERSION = '0.1.0';
+export const VERSION = '1.0.0';
 
 /**
  * The dispatcher is the only place untrusted input becomes a service call.

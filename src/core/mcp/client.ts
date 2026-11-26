@@ -136,7 +136,7 @@ export class McpClientManager {
     try {
       const transport = this.buildTransport(cfg);
       const client = new Client(
-        { name: 'arqenium-openbridge', version: '0.1.0' },
+        { name: 'arqenium-openbridge', version: '1.0.0' },
         { capabilities: { roots: {}, elicitation: {} }, jsonSchemaValidator: new AjvJsonSchemaValidator() },
       );
 
