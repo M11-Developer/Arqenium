@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { assertInside, isInside, relativePosix, toPosix } from '../src/core/paths';
-import { resolveExecutable } from '../src/core/terminal/service';
+import { resolveExecutable, spawnSpec, execArgv, assessCommand } from '../src/core/terminal/service';
 import { createCore } from '../src/core/core';
 
 /**
@@ -60,6 +60,51 @@ describe('Windows executable resolution', () => {
   it('leaves explicit paths alone', () => {
     const explicit = path.join('some', 'dir', 'tool');
     expect(resolveExecutable(explicit)).toBe(explicit);
+  });
+
+  it('decides how to launch an executable without a shell where possible', () => {
+    const spec = spawnSpec(process.execPath);
+    if (process.platform === 'win32') {
+      // node.exe is a real executable: no cmd.exe, no quoting.
+      expect(spec.viaShell).toBe(false);
+      expect(spec.command.toLowerCase()).toMatch(/\.exe$/);
+    } else {
+      expect(spec.viaShell).toBe(false);
+      expect(spec.command).toBe(process.execPath);
+    }
+  });
+});
+
+describe('EchoShell executes without a shell', () => {
+  it('runs an argument vector and captures stdout', async () => {
+    const result = await execArgv(
+      [process.execPath, '-e', 'process.stdout.write("hello from argv")'],
+      process.cwd(),
+      { timeoutMs: 15_000, maxOutputBytes: 64 * 1024 },
+    );
+    expect(result.status).toBe('ok');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('hello from argv');
+  });
+
+  it('reports a non-zero exit code instead of throwing', async () => {
+    const result = await execArgv(
+      [process.execPath, '-e', 'process.stderr.write("boom"); process.exit(3)'],
+      process.cwd(),
+      { timeoutMs: 15_000, maxOutputBytes: 64 * 1024 },
+    );
+    expect(result.status).toBe('error');
+    expect(result.exitCode).toBe(3);
+    expect(result.stderr).toContain('boom');
+  });
+
+  it('times out and reports it', async () => {
+    const result = await execArgv(
+      [process.execPath, '-e', 'setTimeout(() => {}, 30000)'],
+      process.cwd(),
+      { timeoutMs: 800, maxOutputBytes: 64 * 1024 },
+    );
+    expect(result.status).toBe('timeout');
   });
 });
 
@@ -118,6 +163,30 @@ describe('data directory follows the host platform convention', () => {
     } finally {
       if (previous === undefined) delete process.env.ARQ_DATA_DIR;
       else process.env.ARQ_DATA_DIR = previous;
+    }
+  });
+});
+
+describe('Windows-shaped commands are assessed like their POSIX equivalents', () => {
+  it('treats drive-root deletes and disk tools as refused', () => {
+    for (const command of [
+      'rd /s /q C:\\',
+      'del /f /s /q D:\\',
+      'format C:',
+      'diskpart',
+      'reg delete HKLM\\Software\\Foo /f',
+      'vssadmin delete shadows /all',
+    ]) {
+      const assessment = assessCommand(command.split(/\s+/), '');
+      expect(assessment.blocked, `${command} should be blocked`).toBe(true);
+    }
+  });
+
+  it('flags Windows package managers and shell writes as risky', () => {
+    for (const command of ['choco install git', 'winget upgrade --all', 'copy a.txt b.txt', 'icacls . /grant Everyone:F']) {
+      const assessment = assessCommand(command.split(/\s+/), '');
+      expect(assessment.blocked, `${command} should not be silently allowed`).toBe(false);
+      expect(assessment.risk, `${command} should carry risk`).not.toBe('low');
     }
   });
 });

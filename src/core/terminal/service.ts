@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { Db } from '../db/database';
@@ -35,6 +35,18 @@ const WRITE_BINARIES = new Set([
   'sed',
   'patch',
   'git-clean',
+  // Windows equivalents
+  'del',
+  'erase',
+  'rd',
+  'move',
+  'copy',
+  'xcopy',
+  'robocopy',
+  'ren',
+  'attrib',
+  'icacls',
+  'takeown',
 ]);
 
 /** Binaries considered destructive or administrative. */
@@ -69,6 +81,17 @@ const HIGH_RISK_BINARIES = new Set([
   'ssh',
   'scp',
   'rsync',
+  // Windows equivalents
+  'format',
+  'diskpart',
+  'bcdedit',
+  'reg',
+  'regedit',
+  'net',
+  'sc',
+  'runas',
+  'taskkill',
+  'vssadmin',
 ]);
 
 /** Always refused: no approval can unlock these. */
@@ -80,6 +103,12 @@ const BLOCKED_PATTERNS: Array<{ re: RegExp; reason: string }> = [
   { re: />\s*\/dev\/(sd|nvme|disk)/, reason: 'raw device write' },
   { re: /\bchmod\s+-R\s+777\s+\/(\s|$)/, reason: 'world-writable root' },
   { re: /\bshutdown\b|\breboot\b|\bpoweroff\b/, reason: 'machine power state change' },
+  // Windows: format/shutdown/power-state and recursive deletes of a drive root.
+  { re: /\b(format|diskpart|bcdedit|vssadmin)\b/i, reason: 'disk or boot configuration change' },
+  { re: /\bshutdown(\.exe)?\s+\/s\b/i, reason: 'machine power state change' },
+  { re: /\b(rd|rmdir|del|erase)\b[^|&]*\s[A-Za-z]:\\?(\s|$)/i, reason: 'recursive delete of a drive root' },
+  { re: /\brm\s+(-[a-zA-Z]*\s+)*[A-Za-z]:\\?(\s|$)/i, reason: 'recursive delete of a drive root' },
+  { re: /\b(reg(\.exe)?\s+delete|attrib\s+.*[+-]h\b)/i, reason: 'registry or attribute tampering' },
 ];
 
 const GIT_DESTRUCTIVE = [
@@ -91,9 +120,10 @@ const GIT_DESTRUCTIVE = [
 ];
 
 const PKG_MUTATIONS = [
-  { re: /\b(npm|pnpm|yarn)\s+(install|i|add|remove|uninstall|publish)\b/, reason: 'package manager mutation' },
+  { re: /\b(npm|pnpm|yarn)(\.cmd)?\s+(install|i|add|remove|uninstall|publish)\b/, reason: 'package manager mutation' },
   { re: /\bpip3?\s+install\b/, reason: 'package manager mutation' },
   { re: /\bcargo\s+(install|publish)\b/, reason: 'package manager mutation' },
+  { re: /\b(choco|winget|scoop)\s+(install|upgrade|uninstall)\b/, reason: 'package manager mutation' },
 ];
 
 /**
@@ -202,6 +232,46 @@ export function resolveExecutable(bin: string): string {
   return bin;
 }
 
+/**
+ * How to launch a resolved executable.
+ *
+ * Node refuses to spawn a `.cmd`/`.bat` with `shell: false` (it has thrown
+ * `EINVAL` since 20.x), and those are exactly the files npm/npx/yarn land on
+ * for Windows. cmd.exe is used only for that case, where the file path and
+ * arguments are quoted explicitly; real executables keep `shell: false`.
+ */
+export function spawnSpec(bin: string): { command: string; target: string; prefix: string[]; viaShell: boolean } {
+  if (process.platform !== 'win32') return { command: bin, target: bin, prefix: [], viaShell: false };
+  const resolved = resolveExecutable(bin);
+  if (!/\.(cmd|bat)$/i.test(resolved)) return { command: resolved, target: resolved, prefix: [], viaShell: false };
+  // `/d` skips AutoRun, `/s` uses the quoting rule below, `/c` runs and exits.
+  return { command: process.env.ComSpec ?? 'cmd.exe', target: resolved, prefix: ['/d', '/s', '/c'], viaShell: true };
+}
+
+/** Quote one argument for the cmd.exe command line (defensive, not a shell). */
+function quoteForCmd(value: string): string {
+  if (value.length === 0) return '""';
+  if (!/[\s"&|<>^()]/.test(value)) return value;
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+/** Kill the process and, on Windows, its children (taskkill /T). */
+function killTree(child: { pid?: number; kill: (signal?: NodeJS.Signals) => boolean }): void {
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      return;
+    } catch {
+      /* fall through to a plain kill */
+    }
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    /* already gone */
+  }
+}
+
 export function execArgv(
   argv: string[],
   cwd: string,
@@ -215,7 +285,11 @@ export function execArgv(
     let truncatedErr = false;
     let settled = false;
 
-    const child = spawn(resolveExecutable(argv[0]), argv.slice(1), {
+    const spec = spawnSpec(argv[0]);
+    const args = spec.viaShell
+      ? [...spec.prefix, [spec.target, ...argv.slice(1)].map(quoteForCmd).join(' ')]
+      : argv.slice(1);
+    const child = spawn(spec.command, args, {
       cwd,
       shell: false,
       env: { ...filterEnv(process.env), CI: '1', NO_COLOR: '1' },
@@ -239,12 +313,12 @@ export function execArgv(
     };
 
     const timer = setTimeout(() => {
-      child.kill('SIGKILL');
+      killTree(child);
       finish('timeout', null, 'SIGKILL');
     }, opts.timeoutMs);
 
     const onAbort = () => {
-      child.kill('SIGKILL');
+      killTree(child);
       finish('canceled', null, 'SIGKILL');
     };
     opts.signal?.addEventListener('abort', onAbort, { once: true });
