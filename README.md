@@ -76,7 +76,7 @@ System design, data model and security boundaries: **[docs/ARCHITECTURE.md](docs
 
 ## Video walkthrough
 
-Five narrated episodes, 1440×800, covering every surface end to end. Files live in [`docs/video/`](docs/video) and are attached to the [v1.0.0 release](https://github.com/M11-Developer/Arqenium/releases/tag/v1.0.0).
+Five narrated episodes, 1440×800, covering every surface end to end. Files live in [`docs/video/`](docs/video) and are linked from the [v1.0.0 release](https://github.com/M11-Developer/Arqenium/releases/tag/v1.0.0).
 
 | Episode | Covers | Length |
 | --- | --- | --- |
