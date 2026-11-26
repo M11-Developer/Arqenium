@@ -206,6 +206,8 @@ The [Vercel deployment](https://arqenium.vercel.app) is a **static, read-only pr
 
 The bridge only installs when `GET /api/info` does not return JSON, so `npm run dev`, `npm run serve` and the Electron app always talk to the real core. On a real host, demo mode (`ARQ_DEMO_MODE=1`) seeds an in-memory database with a sample project and indexes it for real - that path is exercised by `npm test`.
 
+Deployment steps, the required project settings and the one setting that makes a deployment public are in [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## License
 
 Apache-2.0 © Mohamed El-Sayed Abdelfatah (M11). See [LICENSE](LICENSE).
