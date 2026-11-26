@@ -7,6 +7,10 @@
  *  3. esbuild bundles the standalone API server into dist/server
  *  4. esbuild bundles the hosted-preview bridge next to the renderer
  *
+ * `node scripts/build.mjs --web` builds only the browser half (renderer +
+ * preview bridge). That is what the hosted deployment runs: it has no use for
+ * the Electron or standalone-server bundles and should not pay for them.
+ *
  * Nothing here requires network access.
  */
 import { build as esbuild } from 'esbuild';
@@ -44,34 +48,38 @@ const shared = {
   },
 };
 
+const webOnly = process.argv.includes('--web');
+
 async function main() {
   const t0 = Date.now();
   await rm(dist, { recursive: true, force: true });
   await mkdir(dist, { recursive: true });
 
-  console.log('\n[build] 1/4 renderer');
+  console.log(`\n[build] 1/${webOnly ? 2 : 4} renderer`);
   await viteBuild();
 
-  console.log('\n[build] 2/4 electron main + preload');
-  await esbuild({
-    ...shared,
-    entryPoints: [path.join(root, 'src/electron/main.ts')],
-    outfile: path.join(dist, 'electron/main.js'),
-  });
-  await esbuild({
-    ...shared,
-    entryPoints: [path.join(root, 'src/electron/preload.ts')],
-    outfile: path.join(dist, 'electron/preload.js'),
-  });
+  if (!webOnly) {
+    console.log('\n[build] 2/4 electron main + preload');
+    await esbuild({
+      ...shared,
+      entryPoints: [path.join(root, 'src/electron/main.ts')],
+      outfile: path.join(dist, 'electron/main.js'),
+    });
+    await esbuild({
+      ...shared,
+      entryPoints: [path.join(root, 'src/electron/preload.ts')],
+      outfile: path.join(dist, 'electron/preload.js'),
+    });
 
-  console.log('\n[build] 3/4 standalone API server');
-  await esbuild({
-    ...shared,
-    entryPoints: [path.join(root, 'src/server/main.ts')],
-    outfile: path.join(dist, 'server/main.js'),
-  });
+    console.log('\n[build] 3/4 standalone API server');
+    await esbuild({
+      ...shared,
+      entryPoints: [path.join(root, 'src/server/main.ts')],
+      outfile: path.join(dist, 'server/main.js'),
+    });
+  }
 
-  console.log('\n[build] 4/4 hosted preview bridge');
+  console.log(`\n[build] ${webOnly ? '2/2' : '4/4'} hosted preview bridge`);
   // A browser-side IIFE, inlined next to index.html by Vite (see index.html).
   await esbuild({
     bundle: true,
@@ -90,16 +98,24 @@ async function main() {
   // module graph; strip it so the served HTML points at the real file.
   const htmlFile = path.join(dist, 'renderer/index.html');
   const html = await readFile(htmlFile, 'utf8');
-  await writeFile(htmlFile, html.replace('preview-bridge.js?url', 'preview-bridge.js'));
+  if (html.includes('preview-bridge.js?url')) {
+    await writeFile(htmlFile, html.replace('preview-bridge.js?url', 'preview-bridge.js'));
+  } else if (!html.includes('preview-bridge.js')) {
+    // A silent miss here would ship a page without its demo bridge.
+    throw new Error('index.html does not reference preview-bridge.js');
+  }
 
   const sizes = [];
-  for (const rel of [
-    'renderer/index.html',
-    'renderer/preview-bridge.js',
-    'electron/main.js',
-    'electron/preload.js',
-    'server/main.js',
-  ]) {
+  const expected = webOnly
+    ? ['renderer/index.html', 'renderer/preview-bridge.js']
+    : [
+        'renderer/index.html',
+        'renderer/preview-bridge.js',
+        'electron/main.js',
+        'electron/preload.js',
+        'server/main.js',
+      ];
+  for (const rel of expected) {
     try {
       const s = await stat(path.join(dist, rel));
       sizes.push(`${rel}: ${(s.size / 1024).toFixed(1)} KB`);
