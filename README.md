@@ -37,8 +37,25 @@ No account. No sign-up. No telemetry.
 | 1. Install | `npm install` | Dependencies only; no global tooling required |
 | 2. Develop | `npm run dev` | Vite UI on **5173**, local API on **4319**, `/api` proxied |
 | 3. Build | `npm run build` | `dist/` — server, core, electron main/preload and renderer |
-| 4. Run built app | `ARQ_API_PORT=4400 ARQ_STATIC_DIR=dist/renderer node dist/server/main.js` | Single process serving UI + API |
-| 5. Verify | `npm test` | 100 tests across 9 suites |
+| 4. Run built app | `npm run serve` | Single process serving UI + API on **4319** |
+| 5. Desktop dev | `npm run dev:desktop` | Vite + API + Electron shell, same command on every OS |
+| 6. Package | `npm run dist` | Installers in `release/` (NSIS + portable on Windows) |
+| 7. Verify | `npm test` | 110 tests across 10 suites |
+
+Run the built server on another port with `ARQ_API_PORT=4400 ARQ_STATIC_DIR=dist/renderer node dist/server/main.js` (PowerShell: `$env:ARQ_API_PORT='4400'`).
+
+### Windows
+
+ARQENIUM runs natively on Windows 10/11 — it is not a POSIX app with a shim bolted on:
+
+- **Paths** go through [`src/core/paths.ts`](src/core/paths.ts), which compares case-insensitively on Windows and macOS and is separator-aware, so `C:\work\proj` and `c:\WORK\PROJ` are the same project while `C:\work\proj-evil` never is. Source viewing, the static file server and EchoShell's working directory all use it, so traversal is refused the same way on every OS.
+- **Child processes** never rely on a shell. `npm`, `npx`, `git`, `python` and friends are resolved through `PATH` × `PATHEXT` (`.exe`, `.cmd`, `.bat`, `.com`), because Windows has no execute bit and `spawn('npm')` fails with `ENOENT` there.
+- **No console flicker**: git, python and every spawned tool run with `windowsHide`.
+- **CRLF is expected**: git porcelain output, file reads and diffs are split on `\r?\n`.
+- **Data lives in `%APPDATA%\Arqenium`**, not a dotfile in the home directory.
+- **Shutdown is platform-correct**: the dev runner uses `taskkill /T /F` on Windows so `Ctrl+C` does not orphan Vite or Electron.
+
+The [`Windows`](.github/workflows/windows.yml) workflow runs typecheck, lint, the full test suite, the built-API smoke test and an installer build on `windows-latest` for every push, so this stays true.
 
 Requirements: **Node ≥ 22.12**, npm ≥ 10. `better-sqlite3` compiles a native module — if your machine ships a non-standard Node build, set `npm_config_nodedir=/usr/local` before installing.
 
@@ -137,6 +154,7 @@ Environment variables (see [`.env.example`](.env.example)) are an optional fallb
 | `ARQ_API_PORT` | `4319` | Local API port |
 | `ARQ_DATA_DIR` | `~/.arqenium` (Linux: `~/.local/share/arqenium`) | SQLite database and artifacts |
 | `ARQ_STATIC_DIR` | — | Serve a built renderer from the API process |
+| `ARQ_DEMO_MODE` | `0` | Hosted preview: in-memory database plus a seeded sample project |
 | `ARQ_OPENAI_API_KEY` / `ARQ_ANTHROPIC_API_KEY` / `ARQ_GEMINI_API_KEY` | — | Provider keys (optional) |
 | `ARQ_OPENAI_BASE_URL` · `ARQ_OLLAMA_HOST` | — | OpenAI-compatible and local endpoints |
 | `ARQ_TELEMETRY` | `0` | Accepted but inert: the app has no telemetry backend |
@@ -179,7 +197,13 @@ Documentation imagery is generated deterministically from the design tokens in `
 - **Demo output is labelled.** With no provider configured, runs execute against the deterministic demo adapter and say so in the UI and in TraceX. Those strings are samples, not model output.
 - **Python parsing is structural.** The TypeScript adapter uses the real compiler API; the Python adapter extracts definitions and imports with a syntax-aware scanner and reports `parseQuality` honestly.
 - **EchoShell is not a shell.** Argument vectors only. That is a deliberate safety property, not a missing feature.
-- **Electron packaging needs the runtime binary.** `npm run pack:dir` / `npm run dist` are configured but require `electron` to be downloadable.
+- **Electron packaging needs the runtime binary.** `npm run pack:dir` / `npm run dist` are configured but require `electron` to be downloadable; the Windows workflow builds the installers on a real Windows runner.
+
+## Hosted preview
+
+The [Vercel deployment](https://arqenium.vercel.app) is a **static, read-only preview** of the interface, not a hosted backend. Vercel functions cannot host the core — it needs a writable SQLite database, long-lived SSE connections and native modules — so the deployed page loads [`public/preview-bridge.js`](public/preview-bridge.js), which answers the UI's channels from an in-browser sample dataset and refuses every mutating channel with an explicit "read-only" error. Parsing, indexing, orchestration and EchoShell genuinely do not run there.
+
+The bridge only installs when `GET /api/info` does not return JSON, so `npm run dev`, `npm run serve` and the Electron app always talk to the real core. On a real host, demo mode (`ARQ_DEMO_MODE=1`) seeds an in-memory database with a sample project and indexes it for real - that path is exercised by `npm test`.
 
 ## License
 

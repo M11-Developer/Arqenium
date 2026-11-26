@@ -2,6 +2,21 @@
 
 All notable changes to ARQENIUM are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Windows support, end to end.** `src/core/paths.ts` provides case-folding, separator-aware path containment (`C:\work\proj` vs `c:\WORK\PROJ` vs `C:\work\proj-evil`), used by project file access, the static server and EchoShell's working directory. Executables are resolved through `PATH` × `PATHEXT`, spawned tools are hidden from the console, git porcelain output handles CRLF, and the app data directory follows `%APPDATA%`. `npm run dev:desktop` works identically in cmd, PowerShell and POSIX shells.
+- **Windows packaging.** `electron-builder` configuration with NSIS and portable targets, and a [`Windows`](.github/workflows/windows.yml) CI workflow that verifies, smoke-tests and builds installers on `windows-latest`.
+- **Hosted preview.** `public/preview-bridge.js` supplies a labelled, read-only in-browser dataset so the Vercel deployment is explorable; it installs only when no real core answers `/api/info`. Every mutating channel answers with an explicit "read-only" error instead of pretending to succeed.
+- **Server demo mode.** `ARQ_DEMO_MODE=1` runs the real core on an in-memory database with a seeded, genuinely indexed sample project.
+- **Platform test suite.** `tests/09-platform-windows.test.ts` covers containment edge cases, executable resolution, a real temporary project and the per-platform data directory.
+
+### Changed
+
+- `npm run serve` starts the built server without platform-specific environment-variable syntax.
+- README documents Windows behaviour, the hosted preview and the new scripts.
+
 ## [1.0.0] — 2026-11-25
 
 First stable release. ARQENIUM is a local, desktop-first engineering command center: it indexes a repository on your machine, runs multi-agent engineering tasks against it through approval-gated tools, records every step in TraceX, and evaluates the result. Everything except live model calls works offline.

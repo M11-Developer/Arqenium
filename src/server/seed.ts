@@ -108,8 +108,11 @@ const DEMO_MODULES: ModuleId[] = ['echoshell', 'rebuild-studio'];
 
 export interface DemoSeedResult {
   projectId: string | null;
+  runId: string | null;
   rootPath: string;
   skipped: string[];
+  /** Set to false to seed only the project (used by tests). */
+  run?: boolean;
 }
 
 function writeSampleFiles(root: string): string[] {
@@ -131,7 +134,7 @@ function writeSampleFiles(root: string): string[] {
  * the UI then shows its normal empty state instead of failing to boot.
  */
 export async function seedDemoProject(core: Core): Promise<DemoSeedResult> {
-  const result: DemoSeedResult = { projectId: null, rootPath: '', skipped: [] };
+  const result: DemoSeedResult = { projectId: null, runId: null, rootPath: '', skipped: [] };
 
   // ECHO SHELL and Rebuild Studio are opt-in by default; turn them on so the
   // preview exposes every screen, including the ones behind the module gate.
@@ -162,6 +165,41 @@ export async function seedDemoProject(core: Core): Promise<DemoSeedResult> {
       await core.projects.reindex(project.id);
     } catch {
       /* the background index may already have completed */
+    }
+
+    // A small default team so Runs, Agents and the approval gate are populated.
+    // These are ordinary agent records created through the real service.
+    try {
+      const planner = core.agents.create({ projectId: project.id, name: 'Planner', role: 'planner' });
+      const reviewer = core.agents.create({ projectId: project.id, name: 'Reviewer', role: 'reviewer' });
+      if (result.run !== false) {
+        const { run } = core.orchestrator.createRun({
+          projectId: project.id,
+          mode: 'demo',
+          labels: ['demo', 'sample-app'],
+          tasks: [
+            {
+              title: 'Summarise the sample project',
+              description: 'Describe the entrypoint and the modules it pulls in.',
+              pipeline: [planner.id, reviewer.id],
+              dependsOn: [],
+              input: 'Describe src/index.ts and the modules it imports.',
+              priority: 1,
+              maxAttempts: 1,
+            },
+          ],
+        });
+        result.runId = run.id;
+        // The demo provider needs no key; executing produces real TraceX
+        // events, real task records and a real tool-call history.
+        try {
+          await core.orchestrator.start(run.id);
+        } catch {
+          /* the run record still exists even if execution failed */
+        }
+      }
+    } catch {
+      /* the preview degrades to an empty agents/runs list, not a broken boot */
     }
     return result;
   } catch {

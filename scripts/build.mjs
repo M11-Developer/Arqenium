@@ -5,12 +5,13 @@
  *  1. Vite builds the React renderer into dist/renderer
  *  2. esbuild bundles the Electron main process and preload into dist/electron
  *  3. esbuild bundles the standalone API server into dist/server
+ *  4. esbuild bundles the hosted-preview bridge next to the renderer
  *
  * Nothing here requires network access.
  */
 import { build as esbuild } from 'esbuild';
 import { build as viteBuild } from 'vite';
-import { rm, mkdir, stat } from 'node:fs/promises';
+import { readFile, rm, mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -48,10 +49,10 @@ async function main() {
   await rm(dist, { recursive: true, force: true });
   await mkdir(dist, { recursive: true });
 
-  console.log('\n[build] 1/3 renderer');
+  console.log('\n[build] 1/4 renderer');
   await viteBuild();
 
-  console.log('\n[build] 2/3 electron main + preload');
+  console.log('\n[build] 2/4 electron main + preload');
   await esbuild({
     ...shared,
     entryPoints: [path.join(root, 'src/electron/main.ts')],
@@ -63,15 +64,42 @@ async function main() {
     outfile: path.join(dist, 'electron/preload.js'),
   });
 
-  console.log('\n[build] 3/3 standalone API server');
+  console.log('\n[build] 3/4 standalone API server');
   await esbuild({
     ...shared,
     entryPoints: [path.join(root, 'src/server/main.ts')],
     outfile: path.join(dist, 'server/main.js'),
   });
 
+  console.log('\n[build] 4/4 hosted preview bridge');
+  // A browser-side IIFE, inlined next to index.html by Vite (see index.html).
+  await esbuild({
+    bundle: true,
+    platform: 'browser',
+    target: 'es2022',
+    format: 'iife',
+    minify: true,
+    sourcemap: false,
+    logLevel: 'info',
+    define: { 'process.env.NODE_ENV': '"production"' },
+    entryPoints: [path.join(root, 'src/preview/bridge.ts')],
+    outfile: path.join(dist, 'renderer/preview-bridge.js'),
+  });
+
+  // The `?url` suffix stops Vite from inlining the classic <script> into the
+  // module graph; strip it so the served HTML points at the real file.
+  const htmlFile = path.join(dist, 'renderer/index.html');
+  const html = await readFile(htmlFile, 'utf8');
+  await writeFile(htmlFile, html.replace('preview-bridge.js?url', 'preview-bridge.js'));
+
   const sizes = [];
-  for (const rel of ['renderer/index.html', 'electron/main.js', 'electron/preload.js', 'server/main.js']) {
+  for (const rel of [
+    'renderer/index.html',
+    'renderer/preview-bridge.js',
+    'electron/main.js',
+    'electron/preload.js',
+    'server/main.js',
+  ]) {
     try {
       const s = await stat(path.join(dist, rel));
       sizes.push(`${rel}: ${(s.size / 1024).toFixed(1)} KB`);
