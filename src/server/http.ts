@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Dispatcher, DispatchFailure } from '../core/dispatcher';
+import { isInside } from '../core/paths';
 import type { Core } from '../core/core';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
@@ -291,7 +292,9 @@ function serveStatic(rootDir: string, pathname: string, res: ServerResponse): vo
   const rel = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
   const target = path.resolve(root, `.${rel}`);
   // Path confinement: never serve outside the renderer build directory.
-  if (!target.startsWith(root + path.sep) && target !== root) {
+  // `isInside` folds case on Windows/macOS, where a case-sensitive prefix test
+  // would reject valid requests.
+  if (!isInside(root, target)) {
     json(res, 403, { error: { code: 'forbidden', message: 'Path escapes the application directory' } });
     return;
   }

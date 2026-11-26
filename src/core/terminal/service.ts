@@ -10,6 +10,7 @@ import type { TerminalCommandResult, TerminalSession } from '../../shared/types'
 import type { ToolContext } from '../orchestration/tools';
 import { newId, nowIso } from '../../shared/ids';
 import { filterEnv } from '../redact';
+import { isInside } from '../paths';
 
 export interface CommandAssessment {
   risk: 'low' | 'medium' | 'high';
@@ -159,8 +160,7 @@ export function assessCommand(argv: string[], cwdRel: string): CommandAssessment
 function resolveSessionCwd(projectRoot: string, cwdRel: string): string {
   const root = realpathSync(projectRoot);
   const target = realpathSync(path.resolve(root, cwdRel || '.'));
-  const rel = path.relative(root, target);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+  if (!isInside(root, target)) {
     throw new Error('Working directory escapes the project root');
   }
   if (!statSync(target).isDirectory()) throw new Error('Working directory is not a directory');
@@ -174,6 +174,34 @@ export interface RunOptions {
 }
 
 /** Execute without a shell; stdout/stderr are captured and capped. */
+/**
+ * Resolve a bare binary name to something Windows can actually launch.
+ *
+ * `spawn('npm', …, { shell: false })` works on POSIX but fails on Windows with
+ * ENOENT: npm/npx/pnpm are `.cmd` wrappers there and `CreateProcess` does not
+ * consult PATHEXT. We walk PATH ourselves (the same lookup `cmd` would do),
+ * preferring `.exe`, then `.cmd`, then `.bat`. This keeps `shell: false` — no
+ * shell means no injection surface — while still finding the tools.
+ */
+export function resolveExecutable(bin: string): string {
+  if (process.platform !== 'win32') return bin;
+  if (bin.includes('/') || bin.includes('\\')) return bin;
+  const exts = path.extname(bin) ? [''] : ['.exe', '.cmd', '.bat', '.com'];
+  const dirs = (process.env.PATH ?? process.env.Path ?? '').split(path.delimiter).filter(Boolean);
+  for (const ext of exts) {
+    for (const dir of dirs) {
+      const candidate = path.join(dir, bin + ext);
+      try {
+        if (statSync(candidate).isFile()) return candidate;
+      } catch {
+        /* keep looking */
+      }
+    }
+  }
+  // Let Node try PATHEXT itself; failing that, the error is reported to the user.
+  return bin;
+}
+
 export function execArgv(
   argv: string[],
   cwd: string,
@@ -187,7 +215,7 @@ export function execArgv(
     let truncatedErr = false;
     let settled = false;
 
-    const child = spawn(argv[0], argv.slice(1), {
+    const child = spawn(resolveExecutable(argv[0]), argv.slice(1), {
       cwd,
       shell: false,
       env: { ...filterEnv(process.env), CI: '1', NO_COLOR: '1' },

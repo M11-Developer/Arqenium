@@ -10,6 +10,13 @@
     />
     <title>ARQENIUM</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <!--
+      Hosted preview only. On a host that cannot run the Node core (the Vercel
+      deployment) this installs an in-browser demo bridge so the interface is
+      explorable. It no-ops when /api/info answers, so `npm run dev`, the built
+      server and the Electron desktop app always use the real core.
+    -->
+    <script src="./preview-bridge.js"></script>
   </head>
   <body>
     <div id="root"></div>
