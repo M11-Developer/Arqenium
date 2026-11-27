@@ -2,12 +2,37 @@
 
 All notable changes to ARQENIUM are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] — 2026-11-27
+
+Windows is now a first-class target and the hosted preview ships with the
+release. The desktop build fixes below are the ones that made a packaged
+Windows app actually start.
+
+### Fixed
+
+- **Sandboxed preload was ES module.** `dist/electron/preload.js` was emitted as
+  ESM while the window runs with `sandbox: true`; Electron loads sandboxed
+  preloads as CommonJS, so `window.arqenium` would never be defined and the
+  packaged app would report "core unreachable". The preload is now bundled as
+  CommonJS into `preload.cjs` and referenced explicitly.
+- **Packaging metadata.** `main` is declared for the packaged app via
+  `extraMetadata`, an application icon is generated (`public/icon.png`), and
+  `directories.buildResources` no longer points at a directory that did not
+  exist in a fresh checkout.
+- **Windows child processes.** `spawn('npm', …, { shell: false })` fails on
+  Windows (`.cmd` shims, PATHEXT); executables are now resolved through
+  PATH × PATHEXT and `.cmd`/`.bat` targets launch through `cmd.exe /d /s /c`
+  with explicit quoting, while real executables keep `shell: false`. Timed-out
+  and cancelled commands use `taskkill /T /F` so no child is orphaned.
+- **Path containment.** Case-folded and separator-aware on Windows/macOS, so
+  `C:\work\proj` contains `c:\WORK\PROJ\src` but never `C:\work\proj-evil`.
+- **Windows command risk rules** for `format`, `diskpart`, `reg`, `vssadmin`,
+  drive-root deletes and `choco`/`winget`/`scoop` package mutations.
 
 ### Added
 
 - **Windows support, end to end.** `src/core/paths.ts` provides case-folding, separator-aware path containment (`C:\work\proj` vs `c:\WORK\PROJ` vs `C:\work\proj-evil`), used by project file access, the static server and EchoShell's working directory. Executables are resolved through `PATH` × `PATHEXT`, spawned tools are hidden from the console, git porcelain output handles CRLF, and the app data directory follows `%APPDATA%`. `npm run dev:desktop` works identically in cmd, PowerShell and POSIX shells.
-- **Windows packaging.** `electron-builder` configuration with NSIS and portable targets, and a [`Windows`](.github/workflows/windows.yml) CI workflow that verifies, smoke-tests and builds installers on `windows-latest`.
+- **Windows packaging and releases.** `electron-builder` configuration with NSIS and portable x64 targets, an application icon, and a [`Windows`](.github/workflows/windows.yml) workflow that verifies, smoke-tests and builds the installers on `windows-latest`. Pushing a `v*` tag publishes those installers to a GitHub Release, with a `SHA256SUMS.txt` manifest next to them.
 - **Hosted preview.** `src/preview/bridge.ts` supplies a labelled, read-only sample dataset so the Vercel deployment is explorable; it installs only when no real core answers `/api/info`, and every mutating channel answers with an explicit `preview_read_only` error instead of pretending to succeed. The dataset (`src/preview/dataset.ts`) is captured from the real core in demo mode by `scripts/capture-preview-dataset.mjs`, with a real index and a real executed demo run.
 - **Server demo mode.** `ARQ_DEMO_MODE=1` runs the real core on an in-memory database with a seeded, genuinely indexed sample project.
 - **Platform test suite.** `tests/09-platform-windows.test.ts` covers containment edge cases, executable resolution, a real temporary project and the per-platform data directory.
@@ -16,7 +41,20 @@ All notable changes to ARQENIUM are documented here. The format follows [Keep a 
 ### Changed
 
 - `npm run serve` starts the built server without platform-specific environment-variable syntax.
-- README documents Windows behaviour, the hosted preview and the new scripts.
+- `npm run build` emits the preload as `dist/electron/preload.cjs`.
+- README and [docs/DEPLOY.md](docs/DEPLOY.md) document Windows behaviour, the hosted preview and the release process.
+
+### Download
+
+Windows users should take the release assets, not the source tree:
+
+| Asset | Use |
+| --- | --- |
+| `ARQENIUM-1.1.0-win-x64.exe` | NSIS installer (per-user, choose the install directory, desktop and Start-menu shortcuts) |
+| `ARQENIUM-1.1.0-win-x64-portable.exe` | Single executable, no installation |
+| `SHA256SUMS.txt` | Verify a download with `Get-FileHash` |
+
+The builds are unsigned, so Windows SmartScreen warns on first launch.
 
 ## [1.0.0] — 2026-11-25
 

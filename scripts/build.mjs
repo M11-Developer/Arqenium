@@ -65,10 +65,22 @@ async function main() {
       entryPoints: [path.join(root, 'src/electron/main.ts')],
       outfile: path.join(dist, 'electron/main.js'),
     });
+    // The preload runs in a sandboxed renderer, which Electron loads as
+    // CommonJS - an ESM preload silently yields no `window.arqenium`, so the
+    // packaged app would show "core unreachable". Emit CJS explicitly and give
+    // it its own .cjs extension so neither package.json's type nor Electron's
+    // loader can mistake it for a module.
     await esbuild({
-      ...shared,
+      bundle: true,
+      platform: 'node',
+      target: 'node20',
+      format: 'cjs',
+      sourcemap: true,
+      logLevel: 'info',
+      external: ['electron'],
+      define: { 'process.env.NODE_ENV': '"production"' },
       entryPoints: [path.join(root, 'src/electron/preload.ts')],
-      outfile: path.join(dist, 'electron/preload.js'),
+      outfile: path.join(dist, 'electron/preload.cjs'),
     });
 
     console.log('\n[build] 3/4 standalone API server');
@@ -112,7 +124,7 @@ async function main() {
         'renderer/index.html',
         'renderer/preview-bridge.js',
         'electron/main.js',
-        'electron/preload.js',
+        'electron/preload.cjs',
         'server/main.js',
       ];
   for (const rel of expected) {
