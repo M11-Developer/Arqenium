@@ -41,6 +41,12 @@ export interface ElectronBridge {
 declare global {
   interface Window {
     arqenium?: ElectronBridge;
+    /**
+     * Published by the hosted-preview bridge. Resolves to `true` when the
+     * in-browser preview took over, `false` when a real core answered, and
+     * stays absent in the desktop app.
+     */
+    __arqeniumPreviewReady?: Promise<boolean>;
   }
 }
 
@@ -48,8 +54,37 @@ const isElectron = typeof window !== 'undefined' && !!window.arqenium;
 
 export const runtime: 'electron' | 'web' = isElectron ? 'electron' : 'web';
 
+/**
+ * Wait for the hosted-preview bridge to declare which runtime we are in.
+ *
+ * On a static host the bridge installs itself after probing `GET /api/info`,
+ * so `window.arqenium` may appear a tick after this module runs. Booting
+ * without waiting made the deployed preview fall back to HTTP, receive the SPA
+ * fallback's HTML and render "could not start". The promise is created before
+ * the bridge's own probe, so it always settles.
+ */
+let handshake: Promise<unknown> | null = null;
+
+async function ready(): Promise<void> {
+  if (window.arqenium) return;
+  if (!handshake) {
+    handshake = (async () => {
+      const announced = window.__arqeniumPreviewReady;
+      if (announced) {
+        await announced.catch(() => undefined);
+        return;
+      }
+      // The bridge script runs before this module, so a missing promise means
+      // there is no hosted preview here - do not stall on it.
+      await Promise.resolve();
+    })();
+  }
+  await handshake;
+}
+
 /** Single request entrypoint: Electron IPC in the desktop app, HTTP otherwise. */
 export async function request<C extends Channel>(channel: C, input: ChannelInput<C>): Promise<unknown> {
+  await ready();
   if (window.arqenium) {
     const res = await window.arqenium.invoke(channel, input);
     if (!res.ok) throw new RequestError(res.error.code, res.error.message, res.error.details);

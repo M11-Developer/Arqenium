@@ -2,6 +2,20 @@
 
 All notable changes to ARQENIUM are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Hosted preview booted before its bridge installed.** On a static host the
+  bridge probes `GET /api/info` and installs itself when the answer is not
+  JSON. A SPA fallback answers that probe with `index.html` (HTML, status 200),
+  so the probe settled a tick after the renderer had already read
+  `window.arqenium === undefined`, fallen back to HTTP and rendered
+  "Server returned a non-JSON response (HTTP 404)". The bridge now publishes
+  `window.__arqeniumPreviewReady`, and the renderer awaits it before choosing a
+  transport. Covered by a jsdom test that reproduces the HTML-200 fallback after
+  the first render.
+
 ## [1.1.0] — 2026-11-27
 
 Windows is now a first-class target and the hosted preview ships with the

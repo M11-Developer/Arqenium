@@ -135,6 +135,20 @@ describe.skipIf(!built)('hosted preview in a browser engine', () => {
     dom.window.close();
   });
 
+  /**
+   * The exact production failure: a static host answers unknown paths with the
+   * SPA fallback, so the bridge's `GET /api/info` probe resolves with an HTML
+   * 200 instead of failing. The renderer used to boot before the probe settled
+   * and rendered "could not start". Assert the handshake makes that impossible.
+   */
+  it('boots when the host answers /api/info with the SPA fallback HTML', () => {
+    const readiness = (win as unknown as { __arqeniumPreviewReady?: Promise<boolean> }).__arqeniumPreviewReady;
+    expect(readiness, 'bridge must publish its runtime handshake').toBeTruthy();
+    const text = (win.document.getElementById('root')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).not.toContain('could not start');
+    expect(text).toContain('Overview');
+  });
+
   it('installs the preview bridge when no core answers', () => {
     expect(win.arqenium).toBeTruthy();
     expect((win.arqenium as unknown as { preview: boolean }).preview).toBe(true);
@@ -159,6 +173,92 @@ describe.skipIf(!built)('hosted preview in a browser engine', () => {
       expect(body.length, `${href} rendered almost nothing`).toBeGreaterThan(120);
     }
     expect(errors).toEqual([]);
+  });
+});
+
+/**
+ * The production failure, isolated: Vercel answers `GET /api/info` with the SPA
+ * fallback (HTML, status 200). The bridge must still take over, and the
+ * renderer must still boot - the handshake is what makes that ordering safe.
+ */
+describe.skipIf(!built)('hosted preview on a host that answers the API with HTML', () => {
+  let dom: JSDOM;
+  let win: JSDOM['window'];
+
+  beforeAll(async () => {
+    const html = fs.readFileSync(path.join(rendererDir, 'index.html'), 'utf8');
+    dom = new JSDOM(html.replace(/<script[^>]*><\/script>/g, ''), {
+      runScripts: 'outside-only',
+      pretendToBeVisual: true,
+      url: 'https://arqenium.example/',
+    });
+    win = dom.window;
+
+    // Exactly what a static host does: unknown paths return index.html.
+    // The delay matters: an instant resolve would settle the probe before React
+    // mounts, which is not what a real network round trip does. 60ms lands the
+    // answer *after* the first render, reproducing the production ordering.
+    win.fetch = ((url: string) =>
+      new Promise((resolve) => {
+        setTimeout(
+          () =>
+            resolve({
+              ok: true,
+              status: 200,
+              headers: { get: () => 'text/html; charset=utf-8' },
+              text: () => Promise.resolve(html),
+              json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+              url,
+            }),
+          60,
+        );
+      })) as unknown as typeof fetch;
+    win.EventSource = class {
+      onerror: ((e: unknown) => void) | null = null;
+      constructor() {
+        setTimeout(() => this.onerror?.(new Error('static host')), 5);
+      }
+      addEventListener(): void {}
+      removeEventListener(): void {}
+      close(): void {}
+    } as unknown as typeof EventSource;
+    win.ResizeObserver = class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    } as unknown as typeof ResizeObserver;
+    win.matchMedia = (() => ({
+      matches: false,
+      addEventListener(): void {},
+      removeEventListener(): void {},
+      addListener(): void {},
+      removeListener(): void {},
+    })) as unknown as typeof win.matchMedia;
+    win.scrollTo = (() => undefined) as unknown as typeof win.scrollTo;
+    win.HTMLElement.prototype.scrollIntoView = () => undefined;
+    win.requestAnimationFrame = (cb: FrameRequestCallback): number => setTimeout(() => cb(Date.now()), 0) as unknown as number;
+    win.cancelAnimationFrame = (id: number): void => clearTimeout(id);
+
+    win.eval(fs.readFileSync(path.join(rendererDir, 'preview-bridge.js'), 'utf8'));
+    const bundle = fs.readdirSync(path.join(rendererDir, 'assets')).find((f) => f.endsWith('.js'));
+    win.eval(fs.readFileSync(path.join(rendererDir, 'assets', bundle as string), 'utf8'));
+    await new Promise((r) => setTimeout(r, 2500));
+  });
+
+  afterAll(() => {
+    dom.window.close();
+  });
+
+  it('boots the shell from the HTML fallback instead of reporting an unreachable core', () => {
+    const text = (win.document.getElementById('root')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).not.toContain('could not start');
+    expect(text).not.toContain('non-JSON response');
+    expect(text).toContain('Overview');
+  });
+
+  it('routes every channel through the preview bridge, not over HTTP', () => {
+    const bridge = win.arqenium as unknown as { preview?: boolean } | undefined;
+    expect(bridge?.preview).toBe(true);
   });
 });
 
