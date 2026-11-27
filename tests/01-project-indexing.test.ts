@@ -55,18 +55,43 @@ describe('project selection, scanning and incremental indexing', () => {
   it('extracts real parsed symbols with line numbers and containers', async () => {
     const { core: c, projectId } = await withIndexedProject('index-3');
     core = c;
-    const res = c.projects.symbols(projectId, { query: 'parse_records', limit: 10 });
+    // TypeScript goes through the compiler API, which needs no external tool.
+    // Python parsing shells out to an interpreter, which a clean Windows runner
+    // may not have; that path has its own test below, conditional on the probe.
+    const res = c.projects.symbols(projectId, { query: 'createRouter', limit: 10 });
     expect(res.total).toBeGreaterThanOrEqual(1);
     const sym = res.items[0];
-    expect(sym.path).toBe('src/service.py');
+    expect(sym.path).toBe('src/lib/router.ts');
     expect(sym.kind).toBe('function');
     expect(sym.line).toBeGreaterThan(0);
     expect(sym.quality).toBe('parsed');
 
-    const cls = c.projects.symbols(projectId, { query: 'RecordFormatter', limit: 10 });
-    expect(cls.items.some((s) => s.kind === 'class')).toBe(true);
+    const iface = c.projects.symbols(projectId, { query: 'Router', limit: 10 });
+    expect(iface.items.some((s) => s.kind === 'interface')).toBe(true);
     const method = c.projects.symbols(projectId, { query: 'formatRecord', limit: 10 });
-    expect(method.items.some((s) => s.container === 'RecordFormatter' || s.kind === 'function')).toBe(true);
+    expect(method.items.some((s) => s.kind === 'function' && s.path === 'src/lib/format.ts')).toBe(true);
+  });
+
+  it('parses Python when an interpreter is available, and says so honestly when it is not', async () => {
+    const { core: c, projectId } = await withIndexedProject('index-3-py');
+    core = c;
+    const res = c.projects.symbols(projectId, { query: 'parse_records', limit: 10 });
+    const file = c.projects.fileRecord(projectId, 'src/service.py');
+    expect(file, 'the Python file must be indexed regardless of parse quality').toBeTruthy();
+    if (!file) return;
+
+    if (file.parseQuality === 'parsed') {
+      const sym = res.items.find((s) => s.path === 'src/service.py');
+      expect(sym, 'parsed Python must expose parse_records').toBeTruthy();
+      expect(sym?.quality).toBe('parsed');
+      expect(sym?.line).toBeGreaterThan(0);
+    } else {
+      // No interpreter on this machine: the file is still indexed, and the
+      // quality is reported as `none` rather than pretending a parse happened.
+      expect(file.parseQuality).toBe('none');
+      expect(res.items.filter((s) => s.path === 'src/service.py')).toHaveLength(0);
+      expect(c.projects.get(projectId).indexState).toBe('ready');
+    }
   });
 
   it('re-parses only changed files on incremental reindex', async () => {

@@ -17,9 +17,10 @@ import { REPO_ROOT } from './helpers/core';
  *   3. the dataset keeps the response shapes the UI expects,
  *   4. mutating channels are refused rather than silently faked.
  *
- * They run against `dist/renderer`, which CI builds immediately before `npm test`.
- * When the build is absent (a bare `npm test` on a clean checkout) the
- * browser-level assertions are skipped and only the dataset checks run.
+ * They run against `dist/renderer`. A developer who runs `npm run build` before
+ * `npm test` gets the full browser-level checks; on a clean checkout without a
+ * build they are skipped rather than failed, so the suite never depends on an
+ * artifact being present.
  */
 const rendererDir = path.join(REPO_ROOT, 'dist/renderer');
 const built = fs.existsSync(path.join(rendererDir, 'index.html')) && fs.existsSync(path.join(rendererDir, 'preview-bridge.js'));
