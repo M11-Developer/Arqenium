@@ -47,6 +47,10 @@ jobs:
         # shows the exit code, so the detail has to be in the log itself.
         run: npm test -- --reporter=verbose 2>&1 | Tee-Object -FilePath test-output.log
 
+      - name: Report test failures
+        if: failure()
+        run: node ci-report-failures.mjs test-output.log
+
       - name: Upload test log
         if: always()
         uses: actions/upload-artifact@v4
