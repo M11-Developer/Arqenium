@@ -30,6 +30,20 @@ npm run dev          # UI http://localhost:5173 · API http://127.0.0.1:4319
 
 No account. No sign-up. No telemetry.
 
+## Install on Windows
+
+Grab the latest [release](https://github.com/M11-Developer/Arqenium/releases/latest):
+
+| Asset | What it is |
+| --- | --- |
+| `ARQENIUM-<version>-win-x64.exe` | Installer (per-user, no admin rights, desktop + Start-menu shortcuts) |
+| `ARQENIUM-<version>-win-x64-portable.exe` | Portable single executable |
+| `SHA256SUMS.txt` | Verify with `Get-FileHash .\ARQENIUM-*.exe -Algorithm SHA256` |
+
+The builds are unsigned: SmartScreen shows "Windows protected your PC" on first run — **More info → Run anyway**. Windows 10 1809+ / 11, x64.
+
+Installers are produced by the [`Windows`](.github/workflows/windows.yml) workflow on a real Windows runner for every `v*` tag, after typecheck, lint, the full test suite and a built-API smoke test pass there.
+
 ## Quick start
 
 | Step | Command | Result |
@@ -206,7 +220,7 @@ The [Vercel deployment](https://arqenium.vercel.app) is a **static, read-only pr
 
 The bridge only installs when `GET /api/info` does not return JSON, so `npm run dev`, `npm run serve` and the Electron app always talk to the real core. On a real host, demo mode (`ARQ_DEMO_MODE=1`) seeds an in-memory database with a sample project and indexes it for real - that path is exercised by `npm test`.
 
-Deployment steps, the required project settings and the one setting that makes a deployment public are in [docs/DEPLOY.md](docs/DEPLOY.md).
+Deployment steps, the required project settings and the one setting that makes a deployment public are in [docs/DEPLOY.md](docs/DEPLOY.md). Live: **https://arqenium-demo.vercel.app**
 
 ## License
 

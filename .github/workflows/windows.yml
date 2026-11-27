@@ -3,6 +3,7 @@ name: Windows
 on:
   push:
     branches: ['**']
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -18,6 +19,8 @@ jobs:
   verify:
     name: Verify and package (windows-latest)
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     defaults:
       run:
         shell: pwsh
@@ -40,10 +43,32 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npm test
+        # `--reporter=verbose` plus a saved log: the failure annotation only
+        # shows the exit code, so the detail has to be in the log itself.
+        run: npm test -- --reporter=verbose 2>&1 | Tee-Object -FilePath test-output.log
+
+      - name: Report test failures
+        if: failure()
+        run: node ci-report-failures.mjs test-output.log
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-windows
+          path: test-output.log
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Build
         run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Smoke-test the built API (PowerShell, no shell shims)
         run: |
@@ -67,12 +92,11 @@ jobs:
             Write-Host "index.html $($index.StatusCode)"
             if ($index.StatusCode -ne 200) { throw 'index.html not served' }
 
-            # A Windows-style path escape must be refused, not normalised away.
-            $body = '{"channel":"projects.get","payload":{}}'
+            # A payload missing a required field must be rejected, not normalised.
             $status = 0
             try {
               Invoke-WebRequest -Method Post -Uri 'http://127.0.0.1:4455/api/invoke' `
-                -ContentType 'application/json' -Body $body -UseBasicParsing | Out-Null
+                -ContentType 'application/json' -Body '{"channel":"projects.get","payload":{}}' -UseBasicParsing | Out-Null
             } catch {
               $status = [int]$_.Exception.Response.StatusCode
             }
@@ -83,14 +107,79 @@ jobs:
           }
 
       - name: Package Windows installers
-        run: npx electron-builder --win --publish never
+        id: pack
+        run: |
+          npx electron-builder --win --x64 --publish never
+          $files = Get-ChildItem release -Filter *.exe | ForEach-Object { $_.FullName }
+          if (-not $files) { throw 'electron-builder produced no .exe' }
+          $files | ForEach-Object { Write-Host "built $_" }
+          "files<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $files | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Upload installers
-        uses: actions/upload-artifact@v4
+      - name: Record version
+        id: meta
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - uses: actions/upload-artifact@v4
         with:
           name: arqenium-windows
           path: |
             release/*.exe
             release/*.blockmap
+            release/*.yml
           retention-days: 14
           if-no-files-found: error
+
+  release:
+    name: Publish Windows release
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: arqenium-windows
+          path: release
+
+      - name: Collect release assets
+        id: assets
+        run: |
+          $assets = @()
+          $assets += Get-ChildItem release -Filter *.exe | ForEach-Object { "release/$($_.Name)" }
+          $assets += Get-ChildItem release -Filter latest.yml -ErrorAction SilentlyContinue | ForEach-Object { "release/$($_.Name)" }
+          if ($assets.Count -lt 2) { throw "expected at least two installers, found $($assets.Count)" }
+          $assets | ForEach-Object { Write-Host "asset $_" }
+          "list=$($assets -join ' ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Write checksums
+        run: node checksums.mjs release/*.exe > release/SHA256SUMS.txt && cat release/SHA256SUMS.txt
+
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          ASSETS: ${{ steps.assets.outputs.list }}
+        run: |
+          ls -la release
+          ASSETS="$ASSETS release/SHA256SUMS.txt"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" $ASSETS --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" $ASSETS \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "ARQENIUM $VERSION for Windows" \
+              --notes "Windows build of ARQENIUM $VERSION: an NSIS installer and a portable executable, both x64, built and verified on a Windows runner.
+
+          Every push runs typecheck, lint, the full test suite and a built-API smoke test on windows-latest before these artifacts are produced.
+
+          The build is unsigned, so Windows SmartScreen warns on first launch - choose \"More info\" then \"Run anyway\", or check the download against SHA256SUMS.txt:
+
+              Get-FileHash .\ARQENIUM-$VERSION-win-x64.exe -Algorithm SHA256" \
+              --verify-tag
+          fi

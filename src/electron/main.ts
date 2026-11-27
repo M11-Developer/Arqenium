@@ -27,7 +27,8 @@ function createWindow(): void {
     title: 'ARQENIUM',
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(here, 'preload.js'),
+      // CommonJS: sandboxed preloads cannot be ES modules.
+      preload: path.join(here, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

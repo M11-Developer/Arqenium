@@ -1,6 +1,6 @@
 {
   "name": "arqenium",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "ARQENIUM - desktop-first engineering command center: multi-agent orchestration, project intelligence, MCP integrations, observability, and evaluation.",
   "license": "Apache-2.0",
   "author": "Mohamed El-Sayed Abdelfatah (M11)",
@@ -27,7 +27,8 @@
     "start:web": "node scripts/dev.mjs",
     "serve": "node dist/server/main.js",
     "dev:desktop": "node scripts/dev-desktop.mjs",
-    "build:web": "node scripts/build.mjs --web"
+    "build:web": "node scripts/build.mjs --web",
+    "checksums": "node checksums.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -75,7 +76,7 @@
     "copyright": "Copyright \u00a9 2026 Mohamed El-Sayed Abdelfatah (M11)",
     "directories": {
       "output": "release",
-      "buildResources": "public"
+      "buildResources": "."
     },
     "files": [
       "dist/**/*",
@@ -90,7 +91,6 @@
       "node_modules/zod/**/*",
       "node_modules/ajv/**/*",
       "node_modules/ajv-formats/**/*",
-      "node_modules/chokidar/**/*",
       "node_modules/jpeg-js/**/*",
       "node_modules/pngjs/**/*",
       "node_modules/node-html-parser/**/*"
@@ -116,7 +116,8 @@
         }
       ],
       "artifactName": "ARQENIUM-${version}-win-${arch}.${ext}",
-      "requestedExecutionLevel": "asInvoker"
+      "requestedExecutionLevel": "asInvoker",
+      "icon": "public/icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -132,14 +133,19 @@
         "AppImage"
       ],
       "category": "Development",
-      "artifactName": "ARQENIUM-${version}-linux-${arch}.${ext}"
+      "artifactName": "ARQENIUM-${version}-linux-${arch}.${ext}",
+      "icon": "public/icon.png"
     },
     "mac": {
       "target": [
         "dmg"
       ],
       "category": "public.app-category.developer-tools",
-      "artifactName": "ARQENIUM-${version}-mac-${arch}.${ext}"
+      "artifactName": "ARQENIUM-${version}-mac-${arch}.${ext}",
+      "icon": "public/icon.png"
+    },
+    "extraMetadata": {
+      "main": "dist/electron/main.js"
     }
   }
 }

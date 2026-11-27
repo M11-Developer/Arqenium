@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -13,10 +14,28 @@ function fold(p: string): string {
   return CASE_INSENSITIVE ? p.toLowerCase() : p;
 }
 
+/**
+ * Both sides are compared in their real (long) form.
+ *
+ * Windows accepts short 8.3 names for the same directory - `C:\Users\RUNNER~1`
+ * and `C:\Users\runneradmin` are one folder - and a caller may hold one while
+ * the project stores the other. `isInside` resolves first so two spellings of
+ * the same location compare equal. Resolution is best-effort: paths that do not
+ * exist (which is exactly when containment matters most) fall back to their
+ * lexical form and are still checked.
+ */
+function real(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return p;
+  }
+}
+
 /** True when `candidate` is `root` itself or lives inside it. */
 export function isInside(root: string, candidate: string): boolean {
-  const a = fold(path.resolve(root));
-  const b = fold(path.resolve(candidate));
+  const a = fold(path.resolve(real(root)));
+  const b = fold(path.resolve(real(candidate)));
   if (b === a) return true;
   return b.startsWith(a.endsWith(path.sep) ? a : a + path.sep);
 }
