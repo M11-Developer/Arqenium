@@ -114,7 +114,7 @@ jobs:
           path: |
             release/*.exe
             release/*.blockmap
-            release/latest.yml
+            release/*.yml
           retention-days: 14
           if-no-files-found: error
 
@@ -131,6 +131,16 @@ jobs:
           name: arqenium-windows
           path: release
 
+      - name: Collect release assets
+        id: assets
+        run: |
+          $assets = @()
+          $assets += Get-ChildItem release -Filter *.exe | ForEach-Object { "release/$($_.Name)" }
+          $assets += Get-ChildItem release -Filter latest.yml -ErrorAction SilentlyContinue | ForEach-Object { "release/$($_.Name)" }
+          if ($assets.Count -lt 2) { throw "expected at least two installers, found $($assets.Count)" }
+          $assets | ForEach-Object { Write-Host "asset $_" }
+          "list=$($assets -join ' ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Write checksums
         run: node checksums.mjs release/*.exe > release/SHA256SUMS.txt && cat release/SHA256SUMS.txt
 
@@ -139,20 +149,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.verify.outputs.version }}
+          ASSETS: ${{ steps.assets.outputs.list }}
         run: |
           ls -la release
-          # The installers are built and signed-in-name by a real Windows runner;
-          # publishing from here avoids a second checkout and a second build.
+          ASSETS="$ASSETS release/SHA256SUMS.txt"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" release/*.exe release/latest.yml release/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$TAG" $ASSETS --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" release/*.exe release/latest.yml release/SHA256SUMS.txt \
+            gh release create "$TAG" $ASSETS \
               --repo "$GITHUB_REPOSITORY" \
               --title "ARQENIUM $VERSION for Windows" \
-              --notes "Windows build of ARQENIUM $VERSION (NSIS installer + portable executable), built and verified on a Windows runner.
+              --notes "Windows build of ARQENIUM $VERSION: an NSIS installer and a portable executable, both x64, built and verified on a Windows runner.
 
           Every push runs typecheck, lint, the full test suite and a built-API smoke test on windows-latest before these artifacts are produced.
 
-          Unsigned build: Windows SmartScreen will warn on first run. Choose \"More info\" then \"Run anyway\", or verify the SHA-256 checksums attached to this release." \
+          The build is unsigned, so Windows SmartScreen warns on first launch - choose \"More info\" then \"Run anyway\", or check the download against SHA256SUMS.txt:
+
+              Get-FileHash .\ARQENIUM-$VERSION-win-x64.exe -Algorithm SHA256" \
               --verify-tag
           fi
