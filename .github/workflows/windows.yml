@@ -147,6 +147,14 @@ jobs:
       run:
         shell: pwsh
     steps:
+      # Needed for checksums.mjs: the release job itself does not build, but it
+      # does run repository scripts.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            checksums.mjs
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@v4
         with:
           name: arqenium-windows
@@ -155,15 +163,18 @@ jobs:
       - name: Collect release assets
         id: assets
         run: |
-          $assets = @()
-          $assets += Get-ChildItem release -Filter *.exe | ForEach-Object { "release/$($_.Name)" }
-          $assets += Get-ChildItem release -Filter latest.yml -ErrorAction SilentlyContinue | ForEach-Object { "release/$($_.Name)" }
-          if ($assets.Count -lt 2) { throw "expected at least two installers, found $($assets.Count)" }
-          $assets | ForEach-Object { Write-Host "asset $_" }
-          "list=$($assets -join ' ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $exes = @(Get-ChildItem release -Filter *.exe | ForEach-Object { "release/$($_.Name)" })
+          Write-Host "installers found: $($exes.Count)"
+          $exes | ForEach-Object { Write-Host "  $_" }
+          if ($exes.Count -lt 2) { throw "expected an installer and a portable build, found $($exes.Count)" }
+          $extra = @(Get-ChildItem release -Filter latest.yml -ErrorAction SilentlyContinue | ForEach-Object { "release/$($_.Name)" })
+          "list=$(($exes + $extra) -join ' ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Write checksums
-        run: node checksums.mjs release/*.exe > release/SHA256SUMS.txt && cat release/SHA256SUMS.txt
+        run: |
+          node checksums.mjs (Get-ChildItem release -Filter *.exe | ForEach-Object { $_.FullName }) |
+            Out-File -FilePath release/SHA256SUMS.txt -Encoding utf8
+          Get-Content release/SHA256SUMS.txt
 
       - name: Publish to GitHub Releases
         shell: bash
@@ -173,20 +184,25 @@ jobs:
           VERSION: ${{ needs.verify.outputs.version }}
           ASSETS: ${{ steps.assets.outputs.list }}
         run: |
+          set -euo pipefail
           ls -la release
           ASSETS="$ASSETS release/SHA256SUMS.txt"
+          NOTES=$(cat <<EOF
+          Windows build of ARQENIUM $VERSION - an NSIS installer and a portable executable, both x64, built and verified on a Windows runner.
+
+          Every push runs typecheck, lint, the full test suite and a built-API smoke test on windows-latest before these artifacts are produced.
+
+          The build is unsigned, so Windows SmartScreen warns on first launch: choose "More info" then "Run anyway". You can also check the download against SHA256SUMS.txt:
+
+              Get-FileHash .\ARQENIUM-$VERSION-win-x64.exe -Algorithm SHA256
+          EOF
+          )
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" $ASSETS --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG" $ASSETS \
               --repo "$GITHUB_REPOSITORY" \
               --title "ARQENIUM $VERSION for Windows" \
-              --notes "Windows build of ARQENIUM $VERSION: an NSIS installer and a portable executable, both x64, built and verified on a Windows runner.
-
-          Every push runs typecheck, lint, the full test suite and a built-API smoke test on windows-latest before these artifacts are produced.
-
-          The build is unsigned, so Windows SmartScreen warns on first launch - choose \"More info\" then \"Run anyway\", or check the download against SHA256SUMS.txt:
-
-              Get-FileHash .\ARQENIUM-$VERSION-win-x64.exe -Algorithm SHA256" \
+              --notes "$NOTES" \
               --verify-tag
           fi
