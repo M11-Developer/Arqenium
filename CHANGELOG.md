@@ -50,7 +50,7 @@ Windows users should take the release assets, not the source tree:
 
 | Asset | Use |
 | --- | --- |
-| `ARQENIUM-1.1.0-win-x64.exe` | NSIS installer (per-user, choose the install directory, desktop and Start-menu shortcuts) |
+| `ARQENIUM-1.1.0-win-x64-setup.exe` | NSIS installer (per-user, choose the install directory, desktop and Start-menu shortcuts) |
 | `ARQENIUM-1.1.0-win-x64-portable.exe` | Single executable, no installation |
 | `SHA256SUMS.txt` | Verify a download with `Get-FileHash` |
 
