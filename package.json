@@ -76,7 +76,7 @@
     "copyright": "Copyright \u00a9 2026 Mohamed El-Sayed Abdelfatah (M11)",
     "directories": {
       "output": "release",
-      "buildResources": "public"
+      "buildResources": "."
     },
     "files": [
       "dist/**/*",
