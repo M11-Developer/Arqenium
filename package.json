@@ -115,7 +115,7 @@
           ]
         }
       ],
-      "artifactName": "ARQENIUM-${version}-win-${arch}.${ext}",
+      "artifactName": "ARQENIUM-${version}-win-${arch}-setup.${ext}",
       "requestedExecutionLevel": "asInvoker",
       "icon": "public/icon.png"
     },
@@ -126,7 +126,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "ARQENIUM",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "ARQENIUM-${version}-win-${arch}-setup.${ext}"
     },
     "linux": {
       "target": [
@@ -146,6 +147,9 @@
     },
     "extraMetadata": {
       "main": "dist/electron/main.js"
+    },
+    "portable": {
+      "artifactName": "ARQENIUM-${version}-win-${arch}-portable.${ext}"
     }
   }
 }

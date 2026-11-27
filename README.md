@@ -36,7 +36,7 @@ Grab the latest [release](https://github.com/M11-Developer/Arqenium/releases/lat
 
 | Asset | What it is |
 | --- | --- |
-| `ARQENIUM-<version>-win-x64.exe` | Installer (per-user, no admin rights, desktop + Start-menu shortcuts) |
+| `ARQENIUM-<version>-win-x64-setup.exe` | Installer (per-user, no admin rights, desktop + Start-menu shortcuts) |
 | `ARQENIUM-<version>-win-x64-portable.exe` | Portable single executable |
 | `SHA256SUMS.txt` | Verify with `Get-FileHash .\ARQENIUM-*.exe -Algorithm SHA256` |
 
