@@ -111,7 +111,11 @@ describe('EchoShell: preview, approval, execution safety', () => {
     c.modules.set('echoshell', true);
     const session = c.terminal.createSession({ projectId, name: 'test' });
 
-    const preview = c.terminal.preview({ projectId, sessionId: session.id, command: 'ls src' });
+    // A command that exists on every platform: `ls`/`dir` differ, node does not.
+    // The listed directory is the fixture's `src`, so the output proves the
+    // command really ran inside the project root.
+    const command = 'node src/print-files.mjs';
+    const preview = c.terminal.preview({ projectId, sessionId: session.id, command });
     expect(preview.risk).toBe('low');
     expect(preview.blocked).toBe(false);
     expect(preview.cwd.endsWith('fixture-app')).toBe(true);
@@ -129,7 +133,7 @@ describe('EchoShell: preview, approval, execution safety', () => {
 
     const history = c.terminal.history(projectId);
     expect(history).toHaveLength(1);
-    expect(history[0].argv).toEqual(['ls', 'src']);
+    expect(history[0].argv).toEqual(['node', 'src/print-files.mjs']);
   });
 
   it('does not run a denied command', async () => {
