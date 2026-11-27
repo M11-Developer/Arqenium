@@ -43,7 +43,18 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npm test
+        # `--reporter=verbose` plus a saved log: the failure annotation only
+        # shows the exit code, so the detail has to be in the log itself.
+        run: npm test -- --reporter=verbose 2>&1 | Tee-Object -FilePath test-output.log
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-windows
+          path: test-output.log
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Build
         run: npm run build
