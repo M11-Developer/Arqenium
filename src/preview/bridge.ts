@@ -222,6 +222,40 @@ function install(): void {
   installed = true;
   target.arqenium = bridge;
   console.info('[arqenium] hosted interface preview active - sample data, read-only.');
+  // Wake a renderer that is waiting on the handshake.
+  settle(true);
+}
+
+/**
+ * Runtime handshake.
+ *
+ * The renderer boots as soon as its module executes, which happens *before*
+ * this file's asynchronous probe of `GET /api/info` can settle. Without a
+ * handshake the renderer reads `window.arqenium === undefined`, falls back to
+ * HTTP and renders "could not start" - even though the bridge was one tick
+ * away from installing. That is exactly what happened on the Vercel
+ * deployment, whose SPA fallback answers the probe with HTML.
+ *
+ * So we publish `window.__arqeniumPreviewReady`: a promise that resolves to
+ * `true` when the preview bridge takes over and `false` when a real core
+ * answered. The renderer awaits it before choosing a transport.
+ */
+type ReadyWindow = typeof window & { __arqeniumPreviewReady?: Promise<boolean> };
+
+let settleReady: ((preview: boolean) => void) | null = null;
+
+function publishHandshake(): void {
+  const target = window as ReadyWindow;
+  if (target.__arqeniumPreviewReady) return;
+  target.__arqeniumPreviewReady = new Promise<boolean>((resolve) => {
+    settleReady = resolve;
+  });
+}
+
+function settle(preview: boolean): void {
+  const resolve = settleReady;
+  settleReady = null;
+  resolve?.(preview);
 }
 
 /**
@@ -231,16 +265,29 @@ function install(): void {
 function probe(): void {
   if (typeof fetch !== 'function') {
     install();
+    settle(true);
     return;
   }
   fetch('/api/info', { headers: { accept: 'application/json' } })
     .then((res) => {
       const type = res.headers.get('content-type') ?? '';
-      if (!res.ok || !type.includes('application/json')) install();
+      if (res.ok && type.includes('application/json')) {
+        settle(false);
+      } else {
+        install();
+        settle(true);
+      }
     })
-    .catch(() => install());
+    .catch(() => {
+      install();
+      settle(true);
+    });
 }
 
+publishHandshake();
 probe();
-// Never leave the app waiting on a hung probe.
-setTimeout(install, 1200);
+// Never leave the renderer waiting on a hung probe.
+setTimeout(() => {
+  install();
+  settle(true);
+}, 3000);
