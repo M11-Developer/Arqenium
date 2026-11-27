@@ -81,7 +81,9 @@ describe('optional module enable/disable behaviour', () => {
     const second = createCore({ dataDir, dbFile });
     expect(second.modules.isEnabled('echoshell')).toBe(true);
     second.dispose();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    // Windows releases the SQLite file lazily.
+    await new Promise((r) => setTimeout(r, 120));
+    fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 });
 

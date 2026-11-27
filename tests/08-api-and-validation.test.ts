@@ -292,6 +292,9 @@ describe('dispatcher validation invariants', () => {
     const disk = createCore({ dataDir: tmp });
     expect(fs.existsSync(path.join(tmp, 'arqenium.db'))).toBe(true);
     disk.dispose();
-    fs.rmSync(tmp, { recursive: true, force: true });
+    // Windows releases SQLite handles asynchronously; retry briefly instead of
+    // failing the suite on EBUSY.
+    await new Promise((r) => setTimeout(r, 120));
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 });

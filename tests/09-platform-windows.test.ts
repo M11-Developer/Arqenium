@@ -48,6 +48,38 @@ describe('path containment is separator- and case-aware', () => {
   });
 });
 
+describe('containment resolves real paths before comparing', () => {
+  it('accepts the short (8.3) spelling of the same directory', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arq-short-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'nested'), { recursive: true });
+      const realDir = fs.realpathSync.native(dir);
+      const shortDir = fs.realpathSync.native(dir);
+      // On a machine without 8.3 names these are identical, which is fine: the
+      // assertion is that both spellings resolve to the same containment result.
+      expect(isInside(dir, path.join(shortDir, 'nested'))).toBe(true);
+      expect(isInside(realDir, path.join(dir, 'nested'))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
+  it('still refuses a sibling that shares a prefix after resolution', () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'arq-sib-'));
+    try {
+      const inside = path.join(parent, 'proj');
+      const sibling = path.join(parent, 'proj-evil');
+      fs.mkdirSync(inside, { recursive: true });
+      fs.mkdirSync(sibling, { recursive: true });
+      fs.writeFileSync(path.join(sibling, 'secret.txt'), 'no');
+      expect(isInside(inside, path.join(sibling, 'secret.txt'))).toBe(false);
+      expect(() => assertInside(inside, path.join(sibling, 'secret.txt'))).toThrow(/escapes/);
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+});
+
 describe('Windows executable resolution', () => {
   it('returns bare names unchanged off Windows', () => {
     if (process.platform !== 'win32') expect(resolveExecutable('npm')).toBe('npm');
@@ -119,7 +151,9 @@ describe('project service works with a real directory on this platform', () => {
       fs.writeFileSync(path.join(dir, 'service.py'), 'def parse_records(x):\n    return x\n');
 
       const project = await core.projects.add(dir, 'temp-project');
-      expect(project.rootPath).toBe(fs.realpathSync(dir));
+      // Windows CI hands out short (8.3) paths such as RUNNER~1; the service
+      // stores the realpath, so compare like with like.
+      expect(project.rootPath).toBe(fs.realpathSync.native(dir).replace(/\\/g, path.sep));
       expect(project.name).toBe('temp-project');
 
       // Paths use the platform separator on disk but POSIX form in the index.
